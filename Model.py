@@ -1,63 +1,132 @@
-from keras.applications.vgg19 import VGG19
 from keras.layers import *
 from keras.models import Model
 from math import floor
 
+# Los metodos make_<model> hacen y reciben lo mismo.
+# img_shape: tupla con las dimensiones de la entrada (siempre channels last)
+# ceil_shape: numero de informacion adicional, 7 habitualmente en este caso
+# labels: numero de clases para sacar, 12 habitualmente en este caso
+# Pasando una red, devuelve una funcion que usara una una red prehecha de Keras (VGG, inception...)
+def make_prebuilt(prebuilt):
+    def _prebuilt(img_shape, ceil_shape, labels):
+        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
+        ceil_input = Input(shape=(ceil_shape,))
 
-def make_vgg19(img_shape, ceil_shape, labels):
-    base = VGG19(include_top=False, weights='imagenet', input_shape=img_shape)
-    ceil_input = Input(shape=(ceil_shape,))
+        x = Dense(16, activation="relu")(ceil_input)
+        x = Dropout(0.5)(x)
 
-    x = Dense(16, activation="relu")(ceil_input)
-    x = Dropout(0.5)(x)
+        y = GlobalAveragePooling2D()(base.output)
+        x = Concatenate()([x, y])
+        x = Dense(2048)(x)
+        x = Dropout(0.5)(x)
+        x = Activation('relu')(x)
 
-    y = GlobalAveragePooling2D()(base.output)
-    x = Concatenate()([x, y])
-    x = Dense(2048)(x)
-    x = Dropout(0.5)(x)
-    x = Activation('relu')(x)
+        predictions = Dense(labels, activation="softmax")(x)
 
-    predictions = Dense(labels, activation="softmax")(x)
+        disabled = floor(len(base.layers) * 0.25)
+        for layer in base.layers[:disabled]:
+            if 'batch_normalization' not in layer.name:
+                layer.trainable = False
 
-    disabled = floor(len(base.layers) * 0.25)
-    for layer in base.layers[:disabled]:
-        if 'batch_normalization' not in layer.name:
-            layer.trainable = False
+        return Model([base.input, ceil_input], predictions)
+    return _prebuilt
 
-    return Model([base.input, ceil_input], predictions)
+# Crear un bloque de vgg19, _layer es el tensor de entrada
+def make_vgg19_block(_layer, filters=64, convolutions=2):
+    x = Conv2D(filters, (3, 3), activation='relu', padding='same')(_layer)
+    for _ in range(convolutions-1):
+        x = Conv2D(filters, (3, 3), activation='relu', padding='same')(x)
+    return MaxPooling2D((2, 2), strides=(2, 2))(x)
 
-def make_cropnet(img_shape, ceil_shape, labels, window_size=128, overlap=32):
-    #base = VGG19(include_top=False, weights='imagenet', input_shape=img_shape)
-    h, w, ch = img_shape
+# Crea una VGG19 manualmente, sin nombres. layer es el tensor de entrada
+def make_vgg19_manual(layer):
+    vgg = make_vgg19_block(layer)
+    vgg = make_vgg19_block(vgg, 128)
+    vgg = make_vgg19_block(vgg, 256, 4)
+    vgg = make_vgg19_block(vgg, 512, 4)
+    vgg = make_vgg19_block(vgg, 512, 4)
+
+    return vgg
+
+# Primera version de la arquitectura cropnet.
+def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+    size = img_shape[0]
     ceil_input = Input(shape=(ceil_shape,))
     img_input = Input(shape=img_shape)
-    offset_high = h - window_size + overlap
-    offset_low = window_size - overlap
+    offset = size - window_size - overlap
 
-    subnet_1 = Cropping2D(cropping=((0, offset_high), (0, offset_high)))(img_input)
-    subnet_2 = Cropping2D(cropping=((0, offset_high), (offset_low, h)))(img_input)
-    subnet_3 = Cropping2D(cropping=((offset_low, h), (0, offset_high)))(img_input)
-    subnet_4 = Cropping2D(cropping=((offset_low, h), (offset_low, h)))(img_input)
+    # Recortar cuatro secciones
+    subnet_1 = Cropping2D(cropping=((0, offset), (0, offset)))(img_input)
+    subnet_2 = Cropping2D(cropping=((0, offset), (offset, 0)))(img_input)
+    subnet_3 = Cropping2D(cropping=((offset, 0), (0, offset)))(img_input)
+    subnet_4 = Cropping2D(cropping=((offset, 0), (offset, 0)))(img_input)
 
+    # Declarar las vgg19 de cada seccion
     subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
-    subnets = [VGG19(include_top=False, weights=None)(layer) for layer in subnets]
+    subnets = [make_vgg19_manual(layer) for layer in subnets]
     subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
     subnets = [Dense(2048, activation='relu')(layer) for layer in subnets]
     subnets = [Dropout(0.5)(layer) for layer in subnets]
     subnets = [Dense(labels, activation="softmax")(layer) for layer in subnets]
 
-    mainnet = VGG19(include_top=False, weights=None)(img_input)
+    # Declarar la vgg19 de la imagen completa
+    mainnet = make_vgg19_manual(img_input)
     mainnet = GlobalAveragePooling2D()(mainnet)
     mainnet = Dense(2048, activation='relu')(mainnet)
     mainnet = Dense(labels, activation="softmax")(mainnet)
 
+    # Declarar el mlp de la informacion de ceilometro
     ceilnet = Dense(16, activation="relu")(ceil_input)
     ceilnet = Dropout(0.5)(ceilnet)
 
+    # Concatenar votaciones + info de ceilometro
     voting = Concatenate()(subnets + [mainnet, ceilnet])
     voting = Dense(32, activation="relu")(voting)
     voting = Dropout(0.5)(voting)
 
+    # Devolver una prediccion final
     predictions = Dense(labels, activation="softmax")(voting)
 
     return Model([img_input, ceil_input], predictions)
+
+# Segunda version de la arquitectura cropnet. Incluye una salida auxiliar por cada modelo del ensemble
+def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+    size = img_shape[0]
+    ceil_input = Input(shape=(ceil_shape,))
+    img_input = Input(shape=img_shape)
+    offset = size - window_size - overlap
+
+    # Recortar cuatro secciones
+    subnet_1 = Cropping2D(cropping=((0, offset), (0, offset)))(img_input)
+    subnet_2 = Cropping2D(cropping=((0, offset), (offset, 0)))(img_input)
+    subnet_3 = Cropping2D(cropping=((offset, 0), (0, offset)))(img_input)
+    subnet_4 = Cropping2D(cropping=((offset, 0), (offset, 0)))(img_input)
+
+    # Declarar las vgg19 de cada seccion
+    subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
+    subnets = [make_vgg19_manual(layer) for layer in subnets]
+    subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
+    subnets = [Dense(1024, activation='relu')(layer) for layer in subnets]
+    subnets = [Dropout(0.5)(layer) for layer in subnets]
+    subnets_predictions = [Dense(labels, activation="softmax", name="sub_%d_pred" % i)(layer)
+                           for layer, i in zip(subnets, range(len(subnets)) )]
+
+    # Declarar la vgg19 de la imagen completa
+    mainnet = make_vgg19_manual(img_input)
+    mainnet = GlobalAveragePooling2D()(mainnet)
+    mainnet = Dense(2048, activation='relu')(mainnet)
+    mainnet_predictions = Dense(labels, activation="softmax", name="main_pred")(mainnet)
+
+    # Declarar el mlp de la informacion de ceilometro
+    ceilnet = Dense(16, activation="relu")(ceil_input)
+    ceilnet = Dropout(0.5)(ceilnet)
+
+    # Concatenar votaciones + info de ceilometro
+    voting = Concatenate()(subnets + [mainnet, ceilnet])
+    voting = Dense(32, activation="relu")(voting)
+    voting = Dropout(0.5)(voting)
+
+    # Devolver una prediccion final
+    predictions = Dense(labels, activation="softmax")(voting)
+
+    return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)

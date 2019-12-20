@@ -4,14 +4,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from random import seed
-
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
 
 from keras.models import load_model
 
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from random import seed
 
 # file_dir: Directorio en el que se encuentran los archivos feat_file e img_file
 # _prop: Proporcion entrenamiento y validacion (test por omision)
@@ -69,6 +71,53 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
             'label_encoder': encoder}
 
     return data
+
+
+# train_data: Datos de entrenamiento (img, ceil, y)
+# valid_data: Datos de validacion
+# model_builder: Constructor de modelos
+# model_name: nombre del modelo a guardar
+# model_dir: directorio del modelo a guardar
+# Entrena un modelo construido a partir de un constructor de Model
+def fit_model(train_data, valid_data, model_builder, model_name, model_dir='./results',
+              max_epochs=1000, batch_size=64):
+    img_train, ceil_train, y_train = train_data
+    img_valid, ceil_valid, y_valid = valid_data
+
+    label_num = y_train.shape[1]
+    ceil_features = ceil_train.shape[1]
+    img_shape = img_train.shape[1:]
+
+    model = model_builder(img_shape, ceil_features, label_num)  # Model([base.input, ceil_input], predictions)
+
+    # Compilar el modelo
+    model.compile(loss='categorical_crossentropy',
+                  optimizer=Adam(lr=1e-5, clipnorm=1.),
+                  metrics=['accuracy'])
+    print('Layers: %d' % len(model.layers))
+    model.summary()
+
+    dgen = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
+                              rotation_range=180, width_shift_range=.3,
+                              height_shift_range=.3, brightness_range=[.5, 1.0],
+                              zoom_range=[.5, 1.0], shear_range=45,
+                              fill_mode='nearest', horizontal_flip=True,
+                              vertical_flip=True)
+    dgen.fit(img_train)
+
+    # Entrenar el modelo
+    seed(1)
+    callback_list = [ModelCheckpoint('%s/%s' % (model_dir, '%s_model.h5' % model_name),
+                                     monitor='val_loss', save_best_only=True),
+                     EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10)]
+    model.fit_generator(dgen.flow((img_train, ceil_train), y_train, batch_size=batch_size),
+                        steps_per_epoch=len(img_train) / batch_size,
+                        epochs=max_epochs,
+                        verbose=2,
+                        validation_data=dgen.flow((img_valid, ceil_valid), y_valid),
+                        callbacks=callback_list)
+
+    return model, dgen
 
 
 # file_dir: Directorio en el que se encuentran los archivos a cargar y guardar
