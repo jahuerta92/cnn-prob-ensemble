@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 from keras.engine import Layer, InputSpec
 import keras.backend as K
+from math import floor
 import random as rnd
 
 class RandomCropping2D(Layer):
@@ -47,8 +48,10 @@ class RandomCropping2D(Layer):
         self.input_spec = [InputSpec(ndim=4)]
         self.random_seed = random_seed
 
+
     def build(self, input_shape):
         self.input_spec = [InputSpec(shape=input_shape)]
+
 
     def get_output_shape_for(self, input_shape):
         if self.dim_ordering == 'th':
@@ -68,13 +71,20 @@ class RandomCropping2D(Layer):
         input_shape = self.input_spec[0].shape
         window_w, window_h = self.window
         rnd.seed(self.random_seed)
+
+        def randrange(v):
+            tensor = K.random_uniform((2,), 0, v, dtype='int32')
+            value = K.gather(tensor, 0)
+            return value
+
+        # tf.map_fn(lambda img: tf.image.random_crop(img, [input_shape[0], window_w, window_h], x)
         if self.dim_ordering == 'th':
             img_w, img_h = input_shape[2], input_shape[3]
-            rand_w, rand_h = rnd.randrange(img_w - window_w), rnd.randrange(img_h - window_h)
+            rand_w, rand_h = randrange(img_w - window_w), randrange(img_h - window_h)
             return x[:, :, rand_w:rand_w+window_w, rand_h:rand_h+rand_h]
         elif self.dim_ordering == 'tf':
             img_w, img_h = input_shape[1], input_shape[2]
-            rand_w, rand_h = rnd.randrange(img_w - window_w), rnd.randrange(img_h - window_h)
+            rand_w, rand_h = randrange(img_w - window_w), randrange(img_h - window_h)
             return x[:, rand_w:rand_w+window_w, rand_h:rand_h+rand_h, :]
 
     def get_config(self):

@@ -1,4 +1,3 @@
-# Cargar los datos con pandas y numpy
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -61,8 +60,9 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
 
     del images
 
+    print('')
     print('Image train set shape: %d, %d, %d, %d' % img_train.shape)
-    print('Image train set shape: %d, %d, %d, %d' % img_valid.shape)
+    print('Image valid set shape: %d, %d, %d, %d' % img_valid.shape)
     print('Image test set shape: %d, %d, %d, %d' % img_test.shape)
 
     data = {'train': (img_train, ceil_train, y_train , ),
@@ -72,14 +72,27 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
 
     return data
 
+# Crea un ImageDataGenerator generico a partir de los datos de entrenamiento.
+def make_data_generator(train_data):
+    img_train, ceil_train, y_train = train_data
+    dgen = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
+                             rotation_range=180, width_shift_range=.3,
+                             height_shift_range=.3, brightness_range=[.5, 1.0],
+                             zoom_range=[.5, 1.0], shear_range=45,
+                             fill_mode='nearest', horizontal_flip=True,
+                             vertical_flip=True)
+    dgen.fit(img_train)
+    return dgen
+
 
 # train_data: Datos de entrenamiento (img, ceil, y)
 # valid_data: Datos de validacion
+# data_generator: ImageDataGenerator
 # model_builder: Constructor de modelos
 # model_name: nombre del modelo a guardar
 # model_dir: directorio del modelo a guardar
 # Entrena un modelo construido a partir de un constructor de Model
-def fit_model(train_data, valid_data, model_builder, model_name, model_dir='./results',
+def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
               max_epochs=1000, batch_size=64):
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
@@ -92,32 +105,24 @@ def fit_model(train_data, valid_data, model_builder, model_name, model_dir='./re
 
     # Compilar el modelo
     model.compile(loss='categorical_crossentropy',
-                  optimizer=Adam(lr=1e-5, clipnorm=1.),
+                  optimizer=Adam(lr=1e-4, clipnorm=1.),
                   metrics=['accuracy'])
     print('Layers: %d' % len(model.layers))
     model.summary()
 
-    dgen = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
-                              rotation_range=180, width_shift_range=.3,
-                              height_shift_range=.3, brightness_range=[.5, 1.0],
-                              zoom_range=[.5, 1.0], shear_range=45,
-                              fill_mode='nearest', horizontal_flip=True,
-                              vertical_flip=True)
-    dgen.fit(img_train)
-
     # Entrenar el modelo
     seed(1)
     callback_list = [ModelCheckpoint('%s/%s' % (model_dir, '%s_model.h5' % model_name),
-                                     monitor='val_loss', save_best_only=True),
-                     EarlyStopping(monitor='val_loss', min_delta=0.01, patience=10)]
-    model.fit_generator(dgen.flow((img_train, ceil_train), y_train, batch_size=batch_size),
+                                     monitor='val_acc', save_best_only=True),
+                     EarlyStopping(monitor='val_acc', min_delta=0.0001, patience=25)]
+    model.fit_generator(data_generator.flow((img_train, ceil_train), y_train, batch_size=batch_size),
                         steps_per_epoch=len(img_train) / batch_size,
                         epochs=max_epochs,
                         verbose=2,
-                        validation_data=dgen.flow((img_valid, ceil_valid), y_valid),
+                        validation_data=data_generator.flow((img_valid, ceil_valid), y_valid),
                         callbacks=callback_list)
 
-    return model, dgen
+    return model
 
 
 # file_dir: Directorio en el que se encuentran los archivos a cargar y guardar
@@ -126,14 +131,14 @@ def fit_model(train_data, valid_data, model_builder, model_name, model_dir='./re
 # normalizer: DataGenerator para normalizar las entradas
 # test_data: Datos de evaluacion
 # 'encoder' es el LabelBinarizer que transforma la clave en columnas
-def save_results(file_dir, model_name, encoder, normalizer, test_data):
+def save_results(file_dir, model_name, encoder, data_generator, test_data):
     # Cargar y evaluar el mejor modelo
     model = load_model('%s/%s' % (file_dir, '%s_model.h5' % model_name))
     img_test, ceil_test, y_test = test_data
 
     # Extraer las predicciones del modelo
-    img_test = normalizer.standarize(img_test)
-    model_test_predictions = model.predict([img_test, ceil_test])
+    standard_img_test = data_generator.standardize(img_test)
+    model_test_predictions = model.predict([standard_img_test, ceil_test])
     decoded_predictions = encoder.inverse_transform(model_test_predictions)
     decoded_observations = encoder.inverse_transform(y_test)
     pred_obs = pd.DataFrame(data={'pred': decoded_predictions, 'obs': decoded_observations})

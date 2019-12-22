@@ -2,12 +2,27 @@ from keras.layers import *
 from keras.models import Model
 from math import floor
 
+
+# Modelo para pruebas sin gpu
+def make_dummy(img_shape, ceil_shape, labels):
+    img_input = Input(shape=img_shape)
+    ceil_input = Input(shape=(ceil_shape,))
+    x = Conv2D(1, (3, 3))(img_input)
+    x = Cropping2D((124, 124))(x)
+    x = GlobalAveragePooling2D()(x)
+    x = Concatenate()([x, ceil_input])
+    x = Dense(1)(x)
+    predictions = Dense(labels, activation='softmax')(x)
+
+    return Model([img_input, ceil_input], predictions)
+
+
 # Los metodos make_<model> hacen y reciben lo mismo.
 # img_shape: tupla con las dimensiones de la entrada (siempre channels last)
 # ceil_shape: numero de informacion adicional, 7 habitualmente en este caso
 # labels: numero de clases para sacar, 12 habitualmente en este caso
 # Pasando una red, devuelve una funcion que usara una una red prehecha de Keras (VGG, inception...)
-def make_prebuilt(prebuilt):
+def make_prebuilt(prebuilt, freeze_prop=.25):
     def _prebuilt(img_shape, ceil_shape, labels):
         base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
         ceil_input = Input(shape=(ceil_shape,))
@@ -23,7 +38,7 @@ def make_prebuilt(prebuilt):
 
         predictions = Dense(labels, activation="softmax")(x)
 
-        disabled = floor(len(base.layers) * 0.25)
+        disabled = floor(len(base.layers) * freeze_prop)
         for layer in base.layers[:disabled]:
             if 'batch_normalization' not in layer.name:
                 layer.trainable = False
