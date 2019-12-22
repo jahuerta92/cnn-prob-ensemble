@@ -12,7 +12,7 @@ def make_dummy(img_shape, ceil_shape, labels):
     x = GlobalAveragePooling2D()(x)
     x = Concatenate()([x, ceil_input])
     x = Dense(1)(x)
-    predictions = Dense(labels, activation='softmax')(x)
+    predictions = Dense(labels, activation='softmax', name='out')(x)
 
     return Model([img_input, ceil_input], predictions)
 
@@ -36,7 +36,7 @@ def make_prebuilt(prebuilt, freeze_prop=.25):
         x = Dropout(0.5)(x)
         x = Activation('relu')(x)
 
-        predictions = Dense(labels, activation="softmax")(x)
+        predictions = Dense(labels, activation="softmax", name='out')(x)
 
         disabled = floor(len(base.layers) * freeze_prop)
         for layer in base.layers[:disabled]:
@@ -63,6 +63,16 @@ def make_vgg19_manual(layer):
 
     return vgg
 
+# Crea una alternativa a VGG19 más ligera.
+def make_shallow_manual(layer):
+    vgg = make_vgg19_block(layer, 32, 1)
+    vgg = make_vgg19_block(vgg, 64, 1)
+    vgg = make_vgg19_block(vgg, 128, 1)
+    vgg = make_vgg19_block(vgg, 256, 2)
+    vgg = make_vgg19_block(vgg, 256, 2)
+
+    return vgg
+
 # Primera version de la arquitectura cropnet.
 def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     size = img_shape[0]
@@ -78,17 +88,18 @@ def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
 
     # Declarar las vgg19 de cada seccion
     subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
-    subnets = [make_vgg19_manual(layer) for layer in subnets]
+    subnets = [make_shallow_manual(layer) for layer in subnets]
     subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
     subnets = [Dense(2048, activation='relu')(layer) for layer in subnets]
     subnets = [Dropout(0.5)(layer) for layer in subnets]
-    subnets = [Dense(labels, activation="softmax")(layer) for layer in subnets]
+    subnets_predictions = [Dense(labels, activation="softmax", name='out_{}'.format(i+1))(layer)
+                           for layer, i in zip(subnets, range(len(subnets)))]
 
     # Declarar la vgg19 de la imagen completa
-    mainnet = make_vgg19_manual(img_input)
+    mainnet = make_shallow_manual(img_input)
     mainnet = GlobalAveragePooling2D()(mainnet)
     mainnet = Dense(2048, activation='relu')(mainnet)
-    mainnet = Dense(labels, activation="softmax")(mainnet)
+    mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
 
     # Declarar el mlp de la informacion de ceilometro
     ceilnet = Dense(16, activation="relu")(ceil_input)
@@ -100,7 +111,7 @@ def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     voting = Dropout(0.5)(voting)
 
     # Devolver una prediccion final
-    predictions = Dense(labels, activation="softmax")(voting)
+    predictions = Dense(labels, activation="softmax", name='out')(voting)
 
     return Model([img_input, ceil_input], predictions)
 
@@ -119,18 +130,18 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
 
     # Declarar las vgg19 de cada seccion
     subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
-    subnets = [make_vgg19_manual(layer) for layer in subnets]
+    subnets = [make_shallow_manual(layer) for layer in subnets]
     subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
-    subnets = [Dense(1024, activation='relu')(layer) for layer in subnets]
+    subnets = [Dense(2048, activation='relu')(layer) for layer in subnets]
     subnets = [Dropout(0.5)(layer) for layer in subnets]
-    subnets_predictions = [Dense(labels, activation="softmax", name="sub_%d_pred" % i)(layer)
-                           for layer, i in zip(subnets, range(len(subnets)) )]
+    subnets_predictions = [Dense(labels, activation="softmax", name='out_{}'.format(i+1))(layer)
+                           for layer, i in zip(subnets, range(len(subnets)))]
 
     # Declarar la vgg19 de la imagen completa
-    mainnet = make_vgg19_manual(img_input)
+    mainnet = make_shallow_manual(img_input)
     mainnet = GlobalAveragePooling2D()(mainnet)
     mainnet = Dense(2048, activation='relu')(mainnet)
-    mainnet_predictions = Dense(labels, activation="softmax", name="main_pred")(mainnet)
+    mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
 
     # Declarar el mlp de la informacion de ceilometro
     ceilnet = Dense(16, activation="relu")(ceil_input)
@@ -142,6 +153,6 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     voting = Dropout(0.5)(voting)
 
     # Devolver una prediccion final
-    predictions = Dense(labels, activation="softmax")(voting)
+    predictions = Dense(labels, activation="softmax", name='out')(voting)
 
     return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)

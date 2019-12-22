@@ -93,7 +93,7 @@ def make_data_generator(train_data):
 # model_dir: directorio del modelo a guardar
 # Entrena un modelo construido a partir de un constructor de Model
 def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
-              max_epochs=1000, batch_size=64):
+              max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1):
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
 
@@ -103,23 +103,45 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
 
     model = model_builder(img_shape, ceil_features, label_num)  # Model([base.input, ceil_input], predictions)
 
+    # Declarar losses y accuracies en caso de que haya mas de una salida
+    losses = {'out': 'categorical_crossentropy'}
+    accuracies = {'out': 'accuracy'}
+
+    if n_outputs > 1:
+        losses.update({'out_%d' % i: 'categorical_crossentropy' for i in range(n_outputs-1)})
+        accuracies.update({'out_%d' % i: 'accuracy' for i in range(n_outputs-1)})
+
     # Compilar el modelo
-    model.compile(loss='categorical_crossentropy',
-                  optimizer=Adam(lr=1e-4, clipnorm=1.),
-                  metrics=['accuracy'])
+    model.compile(loss=losses,
+                  optimizer=Adam(lr=lr, clipnorm=1.),
+                  metrics=accuracies)
     print('Layers: %d' % len(model.layers))
     model.summary()
 
     # Entrenar el modelo
     seed(1)
+
+    monitored_metric = 'val_acc'
+    if n_outputs > 1:
+        monitored_metric = 'val_out_acc'
+
     callback_list = [ModelCheckpoint('%s/%s' % (model_dir, '%s_model.h5' % model_name),
-                                     monitor='val_acc', save_best_only=True),
-                     EarlyStopping(monitor='val_acc', min_delta=0.0001, patience=25)]
-    model.fit_generator(data_generator.flow((img_train, ceil_train), y_train, batch_size=batch_size),
+                                     monitor=monitored_metric, save_best_only=True),
+                     EarlyStopping(monitor=monitored_metric, min_delta=0.0001, patience=25)]
+
+    # Generar el flow de salidas (No soporta multisalida por defecto DataGenGenerator)
+    def multi_output_generator(gen, X, y, bs=batch_size):
+        gen_x = gen.flow(X, y, seed=1, batch_size=bs)
+        while True:
+            x_next, y_next = gen_x.next()
+            yield x_next, [y_next[:] for _ in range(n_outputs)]
+
+    model.fit_generator(multi_output_generator(data_generator, (img_train, ceil_train), y_train),
                         steps_per_epoch=len(img_train) / batch_size,
                         epochs=max_epochs,
                         verbose=2,
-                        validation_data=data_generator.flow((img_valid, ceil_valid), y_valid),
+                        validation_data=multi_output_generator(data_generator, (img_valid, ceil_valid), y_valid),
+                        validation_steps=len(img_valid) / batch_size,
                         callbacks=callback_list)
 
     return model
@@ -131,7 +153,7 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
 # normalizer: DataGenerator para normalizar las entradas
 # test_data: Datos de evaluacion
 # 'encoder' es el LabelBinarizer que transforma la clave en columnas
-def save_results(file_dir, model_name, encoder, data_generator, test_data):
+def save_results(file_dir, model_name, encoder, data_generator, test_data, n_outputs=1):
     # Cargar y evaluar el mejor modelo
     model = load_model('%s/%s' % (file_dir, '%s_model.h5' % model_name))
     img_test, ceil_test, y_test = test_data
@@ -139,6 +161,10 @@ def save_results(file_dir, model_name, encoder, data_generator, test_data):
     # Extraer las predicciones del modelo
     standard_img_test = data_generator.standardize(img_test)
     model_test_predictions = model.predict([standard_img_test, ceil_test])
+
+    if len(model_test_predictions) == n_outputs and len(model_test_predictions) > 1:
+        model_test_predictions = model_test_predictions[0]
+
     decoded_predictions = encoder.inverse_transform(model_test_predictions)
     decoded_observations = encoder.inverse_transform(y_test)
     pred_obs = pd.DataFrame(data={'pred': decoded_predictions, 'obs': decoded_observations})
