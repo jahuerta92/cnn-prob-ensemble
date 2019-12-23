@@ -46,12 +46,31 @@ def make_prebuilt(prebuilt, freeze_prop=.25):
         return Model([base.input, ceil_input], predictions)
     return _prebuilt
 
+
 # Crear un bloque de vgg19, _layer es el tensor de entrada
 def make_vgg19_block(_layer, filters=64, convolutions=2):
     x = Conv2D(filters, (3, 3), activation='relu', padding='same')(_layer)
     for _ in range(convolutions-1):
         x = Conv2D(filters, (3, 3), activation='relu', padding='same')(x)
     return MaxPooling2D((2, 2), strides=(2, 2))(x)
+
+
+# Crear un bloque
+def make_residual_block(_layer, filters=64, convolutions=2):
+    res = Conv2D(filters, (1, 3), padding='same')(_layer)
+    res = Conv2D(filters, (3, 1), padding='same')(res)
+    x = BatchNormalization()(res)
+    for i in range(convolutions-1):
+        if i > 0:
+            x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Conv2D(filters, (1, 3), padding='same')(x)
+        x = Conv2D(filters, (3, 1), padding='same')(x)
+    x = BatchNormalization()(x)
+    x = Add()([x, res])
+    x = Activation('relu')(x)
+    return MaxPooling2D((3, 3), strides=(2, 2))(x)
+
 
 # Crea una VGG19 manualmente, sin nombres. layer es el tensor de entrada
 def make_vgg19_manual(layer):
@@ -70,6 +89,16 @@ def make_shallow_manual(layer):
     vgg = make_vgg19_block(vgg, 128, 1)
     vgg = make_vgg19_block(vgg, 256, 2)
     vgg = make_vgg19_block(vgg, 256, 2)
+
+    return vgg
+
+def make_residual_manual(layer):
+    vgg = make_residual_block(layer, 64, 4)
+    vgg = make_residual_block(vgg, 128, 4)
+    vgg = make_residual_block(vgg, 128, 4)
+    vgg = make_residual_block(vgg, 256, 4)
+    vgg = make_residual_block(vgg, 256, 4)
+    vgg = make_residual_block(vgg, 512, 4)
 
     return vgg
 
@@ -128,7 +157,7 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     subnet_3 = Cropping2D(cropping=((offset, 0), (0, offset)))(img_input)
     subnet_4 = Cropping2D(cropping=((offset, 0), (offset, 0)))(img_input)
 
-    # Declarar las vgg19 de cada seccion
+    # Declarar las resnets de cada seccion
     subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
     subnets = [make_shallow_manual(layer) for layer in subnets]
     subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
@@ -141,6 +170,48 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     mainnet = make_shallow_manual(img_input)
     mainnet = GlobalAveragePooling2D()(mainnet)
     mainnet = Dense(2048, activation='relu')(mainnet)
+    mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
+
+    # Declarar el mlp de la informacion de ceilometro
+    ceilnet = Dense(16, activation="relu")(ceil_input)
+    ceilnet = Dropout(0.5)(ceilnet)
+
+    # Concatenar votaciones + info de ceilometro
+    voting = Concatenate()(subnets + [mainnet, ceilnet])
+    voting = Dense(32, activation="relu")(voting)
+    voting = Dropout(0.5)(voting)
+
+    # Devolver una prediccion final
+    predictions = Dense(labels, activation="softmax", name='out')(voting)
+
+    return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
+
+# Segunda version de la arquitectura cropnet. Cambio las subredes convolucionales tipo vgg por resnet
+def make_cropnetv3(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+    size = img_shape[0]
+    ceil_input = Input(shape=(ceil_shape,))
+    img_input = Input(shape=img_shape)
+    offset = size - window_size - overlap
+
+    # Recortar cuatro secciones
+    subnet_1 = Cropping2D(cropping=((0, offset), (0, offset)))(img_input)
+    subnet_2 = Cropping2D(cropping=((0, offset), (offset, 0)))(img_input)
+    subnet_3 = Cropping2D(cropping=((offset, 0), (0, offset)))(img_input)
+    subnet_4 = Cropping2D(cropping=((offset, 0), (offset, 0)))(img_input)
+
+    # Declarar las vgg19 de cada seccion
+    subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
+    subnets = [make_residual_manual(layer) for layer in subnets]
+    subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
+    subnets = [Dense(256, activation='relu')(layer) for layer in subnets]
+    subnets = [Dropout(0.5)(layer) for layer in subnets]
+    subnets_predictions = [Dense(labels, activation="softmax", name='out_{}'.format(i+1))(layer)
+                           for layer, i in zip(subnets, range(len(subnets)))]
+
+    # Declarar la vgg19 de la imagen completa
+    mainnet = make_residual_manual(img_input)
+    mainnet = GlobalAveragePooling2D()(mainnet)
+    mainnet = Dense(256, activation='relu')(mainnet)
     mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
 
     # Declarar el mlp de la informacion de ceilometro
