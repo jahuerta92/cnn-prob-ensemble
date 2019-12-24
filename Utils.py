@@ -7,11 +7,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
 
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 
-from keras.optimizers import Adam
-from keras.preprocessing.image import ImageDataGenerator
-from keras.callbacks import ModelCheckpoint, EarlyStopping
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from random import seed
 
 # file_dir: Directorio en el que se encuentran los archivos feat_file e img_file

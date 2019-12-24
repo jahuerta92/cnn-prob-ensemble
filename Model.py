@@ -1,14 +1,17 @@
-from keras.layers import *
-from keras.models import Model
 from math import floor
+from Layer import RandomCropping2D
 
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras.layers import *
+from tensorflow.keras.models import Model
 
 # Modelo para pruebas sin gpu
-def make_dummy(img_shape, ceil_shape, labels):
-    img_input = Input(shape=img_shape)
-    ceil_input = Input(shape=(ceil_shape,))
+def make_dummy(img_shape, ceil_shape, labels, batch_size=64):
+    img_input = Input(shape=img_shape, batch_size=batch_size)
+    ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
     x = Conv2D(1, (3, 3))(img_input)
-    x = Cropping2D((124, 124))(x)
+    x = RandomCropping2D(window=(4, 4), batch_keep=.75)(x)
     x = GlobalAveragePooling2D()(x)
     x = Concatenate()([x, ceil_input])
     x = Dense(1)(x)
@@ -23,9 +26,9 @@ def make_dummy(img_shape, ceil_shape, labels):
 # labels: numero de clases para sacar, 12 habitualmente en este caso
 # Pasando una red, devuelve una funcion que usara una una red prehecha de Keras (VGG, inception...)
 def make_prebuilt(prebuilt, freeze_prop=.25):
-    def _prebuilt(img_shape, ceil_shape, labels):
-        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
-        ceil_input = Input(shape=(ceil_shape,))
+    def _prebuilt(img_shape, ceil_shape, labels, batch_size=64):
+        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape, batch_size=batch_size)
+        ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
 
         x = Dense(16, activation="relu")(ceil_input)
         x = Dropout(0.5)(x)
@@ -57,15 +60,13 @@ def make_vgg19_block(_layer, filters=64, convolutions=2):
 
 # Crear un bloque
 def make_residual_block(_layer, filters=64, convolutions=2):
-    res = Conv2D(filters, (1, 3), padding='same')(_layer)
-    res = Conv2D(filters, (3, 1), padding='same')(res)
+    res = Conv2D(filters, (1, 1), padding='same')(_layer)
     x = BatchNormalization()(res)
-    for i in range(convolutions-1):
+    for i in range(convolutions):
         if i > 0:
             x = BatchNormalization()(x)
         x = Activation('relu')(x)
-        x = Conv2D(filters, (1, 3), padding='same')(x)
-        x = Conv2D(filters, (3, 1), padding='same')(x)
+        x = Conv2D(filters, (3, 3), padding='same')(x)
     x = BatchNormalization()(x)
     x = Add()([x, res])
     x = Activation('relu')(x)
@@ -84,29 +85,29 @@ def make_vgg19_manual(layer):
 
 # Crea una alternativa a VGG19 más ligera.
 def make_shallow_manual(layer):
-    vgg = make_vgg19_block(layer, 32, 1)
-    vgg = make_vgg19_block(vgg, 64, 1)
-    vgg = make_vgg19_block(vgg, 128, 1)
-    vgg = make_vgg19_block(vgg, 256, 2)
-    vgg = make_vgg19_block(vgg, 256, 2)
+    vgg = make_vgg19_block(layer, 32, 2)
+    vgg = make_vgg19_block(vgg, 64, 2)
+    vgg = make_vgg19_block(vgg, 128, 2)
+    vgg = make_vgg19_block(vgg, 256, 3)
+    vgg = make_vgg19_block(vgg, 256, 3)
 
     return vgg
 
 def make_residual_manual(layer):
-    vgg = make_residual_block(layer, 64, 4)
-    vgg = make_residual_block(vgg, 128, 4)
-    vgg = make_residual_block(vgg, 128, 4)
-    vgg = make_residual_block(vgg, 256, 4)
-    vgg = make_residual_block(vgg, 256, 4)
-    vgg = make_residual_block(vgg, 512, 4)
+    vgg = make_residual_block(layer, 32, 2)
+    vgg = make_residual_block(vgg, 32, 2)
+    vgg = make_residual_block(vgg, 64, 2)
+    vgg = make_residual_block(vgg, 64, 2)
+    vgg = make_residual_block(vgg, 128, 2)
+    vgg = make_residual_block(vgg, 128, 2)
 
     return vgg
 
 # Primera version de la arquitectura cropnet.
-def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32, batch_size=64):
     size = img_shape[0]
-    ceil_input = Input(shape=(ceil_shape,))
-    img_input = Input(shape=img_shape)
+    ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
+    img_input = Input(shape=img_shape, batch_size=batch_size)
     offset = size - window_size - overlap
 
     # Recortar cuatro secciones
@@ -135,7 +136,7 @@ def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     ceilnet = Dropout(0.5)(ceilnet)
 
     # Concatenar votaciones + info de ceilometro
-    voting = Concatenate()(subnets + [mainnet, ceilnet])
+    voting = Concatenate()(subnets_predictions + [mainnet_predictions, ceilnet])
     voting = Dense(32, activation="relu")(voting)
     voting = Dropout(0.5)(voting)
 
@@ -145,10 +146,10 @@ def make_cropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     return Model([img_input, ceil_input], predictions)
 
 # Segunda version de la arquitectura cropnet. Incluye una salida auxiliar por cada modelo del ensemble
-def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32, batch_size=64):
     size = img_shape[0]
-    ceil_input = Input(shape=(ceil_shape,))
-    img_input = Input(shape=img_shape)
+    ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
+    img_input = Input(shape=img_shape, batch_size=batch_size)
     offset = size - window_size - overlap
 
     # Recortar cuatro secciones
@@ -177,8 +178,8 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     ceilnet = Dropout(0.5)(ceilnet)
 
     # Concatenar votaciones + info de ceilometro
-    voting = Concatenate()(subnets + [mainnet, ceilnet])
-    voting = Dense(32, activation="relu")(voting)
+    voting = Concatenate()(subnets_predictions + [mainnet_predictions, ceilnet])
+    voting = Dense(128, activation="relu")(voting)
     voting = Dropout(0.5)(voting)
 
     # Devolver una prediccion final
@@ -186,11 +187,11 @@ def make_cropnetv2(img_shape, ceil_shape, labels, window_size=128, overlap=32):
 
     return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
 
-# Segunda version de la arquitectura cropnet. Cambio las subredes convolucionales tipo vgg por resnet
-def make_cropnetv3(img_shape, ceil_shape, labels, window_size=128, overlap=32):
+# Tercera version de la arquitectura cropnet. Cambio las subredes convolucionales tipo vgg por resnet
+def make_cropnetv3(img_shape, ceil_shape, labels, window_size=128, overlap=32, batch_size=64):
     size = img_shape[0]
-    ceil_input = Input(shape=(ceil_shape,))
-    img_input = Input(shape=img_shape)
+    ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
+    img_input = Input(shape=img_shape, batch_size=batch_size)
     offset = size - window_size - overlap
 
     # Recortar cuatro secciones
@@ -201,26 +202,74 @@ def make_cropnetv3(img_shape, ceil_shape, labels, window_size=128, overlap=32):
 
     # Declarar las vgg19 de cada seccion
     subnets = [subnet_1, subnet_2, subnet_3, subnet_4]
-    subnets = [make_residual_manual(layer) for layer in subnets]
-    subnets = [GlobalAveragePooling2D()(layer) for layer in subnets]
-    subnets = [Dense(256, activation='relu')(layer) for layer in subnets]
-    subnets = [Dropout(0.5)(layer) for layer in subnets]
-    subnets_predictions = [Dense(labels, activation="softmax", name='out_{}'.format(i+1))(layer)
-                           for layer, i in zip(subnets, range(len(subnets)))]
 
-    # Declarar la vgg19 de la imagen completa
-    mainnet = make_residual_manual(img_input)
-    mainnet = GlobalAveragePooling2D()(mainnet)
-    mainnet = Dense(256, activation='relu')(mainnet)
-    mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
+    def make_net(_layer, out_name):
+        x = make_residual_manual(_layer)
+        x = GlobalAveragePooling2D()(x)
+        x = Dense(256, activation='relu')(x)
+        x = Dropout(0.5)(x)
+        return Dense(labels, activation="softmax", name=out_name)(x)
+
+    # Declarar las subredes y
+    subnets_predictions = [make_net(layer, 'out_{}'.format(i+1)) for i, layer in enumerate(subnets)]
+    mainnet_predictions = make_net(img_input, 'out_0')
 
     # Declarar el mlp de la informacion de ceilometro
     ceilnet = Dense(16, activation="relu")(ceil_input)
     ceilnet = Dropout(0.5)(ceilnet)
 
     # Concatenar votaciones + info de ceilometro
-    voting = Concatenate()(subnets + [mainnet, ceilnet])
-    voting = Dense(32, activation="relu")(voting)
+    voting = Concatenate()(subnets_predictions + [mainnet_predictions, ceilnet])
+    voting = Dense(128, activation="relu")(voting)
+    voting = Dropout(0.5)(voting)
+
+    # Devolver una prediccion final
+    predictions = Dense(labels, activation="softmax", name='out')(voting)
+
+    return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
+
+
+def make_very_small_net(_layer):
+    def make_very_small_layer(__layer, filters):
+        x = Conv2D(filters, (3, 3))(__layer)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = MaxPool2D((3, 3), (2, 2))(x)
+        return x
+
+    x = make_very_small_layer(_layer, 2^2)
+    for i in range(3):
+        x = make_very_small_layer(x, 2^(i+2))
+    return x
+
+
+def make_rcropnetv1(img_shape, ceil_shape, labels, window_size=128, overlap=32, batch_size=64, number_crops=10, batch_keep=.75):
+    size = img_shape[0]
+    ceil_input = Input(shape=(ceil_shape,), batch_size=batch_size)
+    img_input = Input(shape=img_shape, batch_size=batch_size)
+
+    # Declarar las vgg19 de cada seccion
+    wsize = window_size + overlap
+    subnets = [RandomCropping2D(window=(wsize, wsize), batch_keep=batch_keep)(img_input) for _ in range(number_crops)]
+
+    def make_net(_layer, net_maker, out_name):
+        x = net_maker(_layer)
+        x = GlobalAveragePooling2D()(x)
+        x = Dense(256, activation='relu')(x)
+        x = Dropout(0.5)(x)
+        return Dense(labels, activation="softmax", name=out_name)(x)
+
+    # Declarar las subredes y
+    subnets_predictions = [make_net(layer, make_very_small_net, 'out_{}'.format(i+1)) for i, layer in enumerate(subnets)]
+    mainnet_predictions = make_net(img_input, make_shallow_manual, 'out_0')
+
+    # Declarar el mlp de la informacion de ceilometro
+    ceilnet = Dense(16, activation="relu")(ceil_input)
+    ceilnet = Dropout(0.5)(ceilnet)
+
+    # Concatenar votaciones + info de ceilometro
+    voting = Concatenate()(subnets_predictions + [mainnet_predictions, ceilnet])
+    voting = Dense(128, activation="relu")(voting)
     voting = Dropout(0.5)(voting)
 
     # Devolver una prediccion final
