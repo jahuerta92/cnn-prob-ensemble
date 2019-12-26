@@ -94,6 +94,7 @@ def make_data_generator(train_data):
 # Entrena un modelo construido a partir de un constructor de Model
 def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
               max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1):
+    print("Unpacking train and validation tests")
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
 
@@ -101,6 +102,7 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
     ceil_features = ceil_train.shape[1]
     img_shape = img_train.shape[1:]
 
+    print("Building the network")
     model = model_builder(img_shape, ceil_features, label_num)  # Model([base.input, ceil_input], predictions)
 
     # Declarar losses y accuracies en caso de que haya mas de una salida
@@ -112,6 +114,7 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
         accuracies.update({'out_%d' % i: 'accuracy' for i in range(n_outputs-1)})
 
     # Compilar el modelo
+    print("Compiling the network")
     model.compile(loss=losses,
                   optimizer=Adam(lr=lr, clipnorm=1.),
                   metrics=accuracies)
@@ -136,6 +139,7 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
             x_next, y_next = gen_x.next()
             yield x_next, [y_next[:] for _ in range(n_outputs)]
 
+    print("Fitting the network")
     model.fit_generator(multi_output_generator(data_generator, (img_train, ceil_train), y_train),
                         steps_per_epoch=len(img_train) / batch_size,
                         epochs=max_epochs,
