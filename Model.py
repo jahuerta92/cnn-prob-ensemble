@@ -229,17 +229,18 @@ def make_cropnetv3(img_shape, ceil_shape, labels, window_size=128, overlap=32):
     return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
 
 
-def make_very_small_net(_layer):
+def make_very_small_net(_layer, start_filters=4):
     def make_very_small_layer(__layer, filters):
-        x = Conv2D(filters, (3, 3), padding='same')(__layer)
+        x = Conv2D(filters, (1, 3), padding='same')(__layer)
+        x = Conv2D(filters, (3, 1), padding='same')(x)
         x = BatchNormalization()(x)
         x = Activation('relu')(x)
         x = MaxPool2D((3, 3), (2, 2))(x)
         return x
 
-    x = make_very_small_layer(_layer, 2 ** 2)
+    x = make_very_small_layer(_layer, start_filters)
     for i in range(3):
-        x = make_very_small_layer(x, 2 ** (i+2))
+        x = make_very_small_layer(x, start_filters * (2 ** (i+1)))
     return x
 
 
@@ -285,3 +286,43 @@ def make_rcropnetv1(n_crops=4):
 
         return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
     return _make_rcropnetv1
+
+
+def make_rcropnetv2(n_crops=4, window_size=128):
+    def _make_rcropnetv2(img_shape, ceil_shape, labels):
+        size = img_shape[0]
+        ceil_input = Input(shape=(ceil_shape,))
+        img_input = Input(shape=img_shape)
+
+        # Declarar las vgg19 de cada seccion
+        wsize = window_size
+
+        # Declarar el mlp de la informacion de ceilometro
+        ceilnet = Dense(16, activation="relu")(ceil_input)
+        ceilnet = Dropout(0.5)(ceilnet)
+
+        def make_net(_layer, net_maker):
+            x = net_maker(_layer)
+            x = GlobalAveragePooling2D()(x)
+            dense = 256
+            x = Concatenate()([ceilnet, x])
+            x = Dense(dense, activation='relu')(x)
+            return Dropout(0.5)(x)
+
+        crop = RandomCropping2D(window=(wsize, wsize))(img_input)
+        subnet = make_net(crop, make_shallow_manual)
+
+        subnet_blueprint = Model(inputs=[img_input, ceil_input], outputs=subnet)
+
+        # Declarar las subredes
+        subnets = [subnet_blueprint([img_input, ceil_input]) for _ in range(n_crops)]
+        subnets_predictions = [Dense(labels, activation="softmax", name='out_{}'.format(i + 1))(net)
+                               for i, net in enumerate(subnets)]
+        mainnet = make_net(img_input, make_shallow_manual)
+        mainnet_predictions = Dense(labels, activation="softmax", name='out_0')(mainnet)
+
+        # Concatenar votaciones + info de ceilometro
+        predictions = Average(name='out')(subnets_predictions + [mainnet_predictions])
+
+        return Model([img_input, ceil_input], [predictions, mainnet_predictions] + subnets_predictions)
+    return _make_rcropnetv2
