@@ -50,6 +50,33 @@ def make_prebuilt(prebuilt, freeze_prop=.25):
     return _prebuilt
 
 
+def make_prebuilt_extended(prebuilt, freeze_prop=.25):
+    def _prebuilt(img_shape, ceil_shape, labels):
+        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
+        ceil_input = Input(shape=(ceil_shape,))
+
+        x = Dense(16, activation="relu")(ceil_input)
+        x = Dropout(0.5)(x)
+
+        y = GlobalAveragePooling2D()(base.output)
+        x = Concatenate()([x, y])
+        x = Dense(2048, activation="relu")(x)
+        x = Dropout(0.5)(x)
+        x = Dense(128, activation="relu")(x)
+        x = Dropout(0.5)(x)
+        x = Activation('relu')(x)
+
+        predictions = Dense(labels, activation="softmax", name='out')(x)
+
+        disabled = floor(len(base.layers) * freeze_prop)
+        for layer in base.layers[:disabled]:
+            if 'batch_normalization' not in layer.name:
+                layer.trainable = False
+
+        return Model([base.input, ceil_input], predictions)
+    return _prebuilt
+
+
 # Crear un bloque de vgg19, _layer es el tensor de entrada
 def make_vgg19_block(_layer, filters=64, convolutions=2):
     x = Conv2D(filters, (3, 3), activation='relu', padding='same')(_layer)
