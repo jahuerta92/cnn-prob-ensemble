@@ -25,9 +25,9 @@ def make_dummy(img_shape, ceil_shape, labels):
 # ceil_shape: numero de informacion adicional, 7 habitualmente en este caso
 # labels: numero de clases para sacar, 12 habitualmente en este caso
 # Pasando una red, devuelve una funcion que usara una una red prehecha de Keras (VGG, inception...)
-def make_prebuilt(prebuilt, freeze_prop=.25):
+def make_prebuilt(prebuilt, freeze_prop=.25, wgh= 'imagenet'):
     def _prebuilt(img_shape, ceil_shape, labels):
-        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
+        base = prebuilt(include_top=False, weights=wgh, input_shape=img_shape)
         ceil_input = Input(shape=(ceil_shape,))
 
         x = Dense(16, activation="relu")(ceil_input)
@@ -37,6 +37,34 @@ def make_prebuilt(prebuilt, freeze_prop=.25):
         x = Concatenate()([x, y])
         x = Dense(2048)(x)
         x = Dropout(0.5)(x)
+        x = Activation('relu')(x)
+
+        predictions = Dense(labels, activation="softmax", name='out')(x)
+
+        disabled = floor(len(base.layers) * freeze_prop)
+        for layer in base.layers[:disabled]:
+            if 'batch_normalization' not in layer.name:
+                layer.trainable = False
+
+        return Model([base.input, ceil_input], predictions)
+    return _prebuilt
+
+
+def make_prebuilt_extended(prebuilt, freeze_prop=.25):
+    def _prebuilt(img_shape, ceil_shape, labels):
+        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
+        ceil_input = Input(shape=(ceil_shape,))
+
+        x = Dense(16, activation="relu")(ceil_input)
+        x = Dropout(0.5)(x)
+
+        y = GlobalAveragePooling2D()(base.output)
+        x = Concatenate()([x, y])
+        x = Dense(256)(x)
+        x = BatchNormalization()(x)
+        x = Activation('relu')(x)
+        x = Dense(64)(x)
+        x = BatchNormalization()(x)
         x = Activation('relu')(x)
 
         predictions = Dense(labels, activation="softmax", name='out')(x)

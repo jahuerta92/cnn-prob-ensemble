@@ -28,6 +28,11 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
                                    "ceil.depth1", "ceil.depth2",
                                    "ceil.layers"]])
 
+    del features['date']
+    del features['file']
+    del features['camnum']
+    del features['cloud.type']
+
     # De string a una matriz de clases para la red
     encoder = LabelBinarizer()
     cloud_encoded = encoder.fit_transform(cloud_type)
@@ -35,8 +40,7 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
     # Escalado de las variables de entrada
     ceil_info = scale(ceil_info, copy=False)
 
-    seed(1)
-    in_train, in_test = train_test_split(np.array(range(0,len(cloud_type))),
+    in_train, in_test = train_test_split(np.array(range(0, len(cloud_type))),
                                          train_size=train_prop + valid_prop,
                                          stratify=cloud_type, random_state=1)
     in_train, in_valid = train_test_split(in_train, train_size=train_prop / (train_prop + valid_prop),
@@ -50,6 +54,7 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
 
     y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
+    aux_train, aux_test, aux_valid = features.iloc[in_train, :], features.iloc[in_test, :], features.iloc[in_valid, :]
 
     del ceil_info
     del cloud_encoded
@@ -72,9 +77,10 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
     print('Image valid set shape: %d, %d, %d, %d' % img_valid.shape)
     print('Image test set shape: %d, %d, %d, %d' % img_test.shape)
 
-    data = {'train': (img_train, ceil_train, y_train , ),
+    data = {'train': (img_train, ceil_train, y_train),
             'valid': (img_valid, ceil_valid, y_valid),
             'test': (img_test, ceil_test, y_test),
+            'features': (aux_train, aux_valid, aux_test),
             'label_encoder': encoder}
 
     return data
