@@ -6,6 +6,7 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
+from imblearn.over_sampling import SMOTE
 
 from tensorflow.keras.models import load_model
 
@@ -41,6 +42,12 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
     in_train, in_valid = train_test_split(in_train, train_size=train_prop / (train_prop + valid_prop),
                                           stratify=cloud_type[in_train],
                                           random_state=1)
+
+    print("\nSMOTE oversampling\n")
+    in_train_reshaped = in_train.reshape(-1, 1)
+    in_train_reshaped, y_train = SMOTE().fit_resample(in_train_reshaped, y_train)
+    in_train = in_train_reshaped.reshape(-1)
+
     y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
 
@@ -174,7 +181,6 @@ def save_results(file_dir, model_name, encoder, data_generator, test_data, n_out
     pred_obs = pd.DataFrame(data={'pred': decoded_predictions, 'obs': decoded_observations})
 
     # Evaluar el Modelo
-
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     plt.title('Confusion Matrix')
