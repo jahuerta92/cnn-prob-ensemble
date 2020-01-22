@@ -3,9 +3,6 @@ from __future__ import absolute_import
 import tensorflow as tf
 from tensorflow.keras.layers import Layer, InputSpec
 
-from math import floor
-import numpy as np
-
 
 class RandomCropping2D(Layer):
     '''Cropping layer for 2D input (e.g. picture).
@@ -32,10 +29,10 @@ class RandomCropping2D(Layer):
         # crop the input image and feature meps
         model = Sequential()
         model.add(RandomCropping2D(cropping=(8,16), input_shape=(3, 28, 28)))
-        # now model.output_shape == (None, 3, 20, 12)
+        # now model.output_shape == (None, 3, 8, 16)
         model.add(Convolution2D(64, 3, 3, border_mode='same))
         model.add(RandomCropping2D(cropping=(2,2)))
-        # now model.output_shape == (None, 64, 18, 10)
+        # now model.output_shape == (None, 64, 2, 2)
     ```
     '''
 
