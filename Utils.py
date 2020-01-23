@@ -47,12 +47,14 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
                                           stratify=cloud_type[in_train],
                                           random_state=1)
 
+    y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
+
     print("\nSMOTE oversampling\n")
     in_train_reshaped = in_train.reshape(-1, 1)
-    in_train_reshaped, y_train = SMOTE().fit_resample(in_train_reshaped, cloud_type[in_train])
+    in_train_reshaped, y_train = SMOTE().fit_resample(in_train_reshaped, y_train)
     in_train = in_train_reshaped.reshape(-1)
+    y_train = cloud_encoded[in_train]
 
-    y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
     aux_train, aux_test, aux_valid = features.iloc[in_train, :], features.iloc[in_test, :], features.iloc[in_valid, :]
 

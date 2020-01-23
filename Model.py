@@ -35,9 +35,8 @@ def make_prebuilt(prebuilt, freeze_prop=.25, wgh='imagenet'):
 
         y = GlobalAveragePooling2D()(base.output)
         x = Concatenate()([x, y])
-        x = Dense(2048)(x)
-        x = BatchNormalization()(x)
-        x = Activation('relu')(x)
+        x = Dense(2048, activation='relu')(x)
+        x = Dropout(0.5)(x)
 
         predictions = Dense(labels, activation="softmax", name='out')(x)
 
