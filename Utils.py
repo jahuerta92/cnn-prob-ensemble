@@ -147,21 +147,31 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                                      monitor=monitored_metric, save_best_only=True),
                      EarlyStopping(monitor=monitored_metric, min_delta=0.0001, patience=25)]
 
-    # Generar el flow de salidas (No soporta multisalida por defecto DataGenGenerator)
-    def multi_output_generator(gen, X, y, bs=batch_size):
-        gen_x = gen.flow(X, y, seed=1, batch_size=bs)
-        while True:
-            x_next, y_next = gen_x.next()
-            yield x_next, [y_next[:] for _ in range(n_outputs)]
-
     print("Fitting the network")
-    model.fit_generator(multi_output_generator(data_generator, (img_train, ceil_train), y_train),
-                        steps_per_epoch=len(img_train) / batch_size,
-                        epochs=max_epochs,
-                        verbose=2,
-                        validation_data=multi_output_generator(data_generator, (img_valid, ceil_valid), y_valid),
-                        validation_steps=len(img_valid) / batch_size,
-                        callbacks=callback_list)
+    if n_outputs > 1:
+        # Generar el flow de salidas (No soporta multisalida por defecto DataGenGenerator)
+        def multi_output_generator(gen, X, y, bs=batch_size):
+            gen_x = gen.flow(X, y, seed=1, batch_size=bs)
+            while True:
+                x_next, y_next = gen_x.next()
+                yield x_next, [y_next[:] for _ in range(n_outputs)]
+
+        model.fit_generator(multi_output_generator(data_generator, (img_train, ceil_train), y_train),
+                            steps_per_epoch=len(img_train) / batch_size,
+                            epochs=max_epochs,
+                            verbose=2,
+                            validation_data=multi_output_generator(data_generator, (img_valid, ceil_valid), y_valid),
+                            validation_steps=len(img_valid) / batch_size,
+                            callbacks=callback_list)
+
+    else:
+        model.fit_generator(data_generator.flow((img_train, ceil_train), y_train, batch_size=batch_size),
+                            steps_per_epoch=len(img_train) / batch_size,
+                            epochs=max_epochs,
+                            verbose=2,
+                            validation_data=data_generator.flow((img_valid, ceil_valid), y_valid, batch_size=batch_size),
+                            validation_steps=len(img_valid) / batch_size,
+                            callbacks=callback_list)
 
     return model
 
