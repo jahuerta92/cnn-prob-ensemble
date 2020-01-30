@@ -17,12 +17,15 @@ from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from random import seed
 
+
 # file_dir: Directorio en el que se encuentran los archivos feat_file e img_file
 # _prop: Proporcion entrenamiento y validacion (test por omision)
 # _file: Nombre del fichero
 # Devuelve un diccionario con 'train' 'valid' 'test' con tuplas de tipo (imagen,ceilometro,etiqueta)
 # 'label_encoder' es el LabelBinarizer que transforma la clave en columnas
-def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.csv', img_file='images.npz'):
+def load_data(file_dir, train_prop=.7, valid_prop=.1,
+              feat_file='cloud_features.csv', img_file='images.npz',
+              oversampler=SMOTE()):
     features = pd.read_csv('%s/%s' % (file_dir, feat_file), sep=';', decimal=',')
     cloud_type = np.array(features['cloud.type'])
     ceil_info = np.array(features[["ceil.height0", "ceil.height1",
@@ -52,10 +55,11 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1, feat_file='cloud_features.
     y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
 
     print("\nSMOTE oversampling\n")
-    in_train_reshaped = in_train.reshape(-1, 1)
-    in_train_reshaped, y_train = SMOTE().fit_resample(in_train_reshaped, y_train)
-    in_train = in_train_reshaped.reshape(-1)
-    y_train = cloud_encoded[in_train]
+    if oversampler is not None:
+        in_train_reshaped = in_train.reshape(-1, 1)
+        in_train_reshaped, y_train = oversampler.fit_resample(in_train_reshaped, y_train)
+        in_train = in_train_reshaped.reshape(-1)
+        y_train = cloud_encoded[in_train]
 
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
     aux_train, aux_test, aux_valid = features.iloc[in_train, :], features.iloc[in_test, :], features.iloc[in_valid, :]
@@ -148,8 +152,8 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
     class_weights = None
     if include_class_weights:
         class_weights = class_weight.compute_class_weight('balanced',
-                                                          np.unique(y_train),
-                                                          y_train)
+                                                          classes=np.unique(y_train),
+                                                          y=y_train.reshape(-1,))
 
     label_num = y_train.shape[1]
     ceil_features = ceil_train.shape[1]

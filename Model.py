@@ -25,16 +25,16 @@ def make_dummy(img_shape, ceil_shape, labels):
 # ceil_shape: numero de informacion adicional, 7 habitualmente en este caso
 # labels: numero de clases para sacar, 12 habitualmente en este caso
 # Pasando una red, devuelve una funcion que usara una una red prehecha de Keras (VGG, inception...)
-def make_prebuilt(prebuilt, freeze_prop=.25, wgh='imagenet'):
+def make_prebuilt(prebuilt, freeze_prop=.25, wgh='imagenet', include_ceilometer=True):
     def _prebuilt(img_shape, ceil_shape, labels):
         base = prebuilt(include_top=False, weights=wgh, input_shape=img_shape)
-        ceil_input = Input(shape=(ceil_shape,))
+        x = GlobalAveragePooling2D()(base.output)
+        if include_ceilometer:
+            ceil_input = Input(shape=(ceil_shape,))
+            y = Dense(16, activation="relu")(ceil_input)
+            y = Dropout(0.5)(x)
+            x = Concatenate()([x, y])
 
-        x = Dense(16, activation="relu")(ceil_input)
-        x = Dropout(0.5)(x)
-
-        y = GlobalAveragePooling2D()(base.output)
-        x = Concatenate()([x, y])
         x = Dense(2048, activation='relu')(x)
         x = Dropout(0.5)(x)
 

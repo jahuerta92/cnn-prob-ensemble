@@ -1,0 +1,2 @@
+- Probar a incluir los estadisticos + ceilometro a la capa Dense
+- Probar a quitar la informacion del ceilometro
