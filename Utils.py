@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
 from imblearn.over_sampling import SMOTE
+from imblearn.keras import BalancedBatchGenerator
 
 from tensorflow.keras.models import load_model
 
@@ -97,6 +98,35 @@ def make_data_generator(train_data):
                              fill_mode='nearest', horizontal_flip=True,
                              vertical_flip=True)
     dgen.fit(img_train)
+    return dgen
+
+
+class BalancedImageGenerator:
+    def __init__(self, ImageDataGenerator, BalancedBatchGenerator):
+        self._imgen = ImageDataGenerator
+        self._bgen = BalancedBatchGenerator
+
+    def flow(self, *args, **kwargs):
+        while True:
+            (X, ceil), y = self._bgen.next()
+            X_t = self._imgen.random_transform(X)
+            yield [X_t, ceil], y
+
+
+def make_balanced_generator(train_data, batch_size):
+    img_train, ceil_train, y_train = train_data
+    image_generator = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
+                                         rotation_range=180, width_shift_range=.3,
+                                         height_shift_range=.3, brightness_range=[.5, 1.0],
+                                         zoom_range=[.5, 1.0], shear_range=45,
+                                         fill_mode='nearest', horizontal_flip=True,
+                                         vertical_flip=True)
+
+    batch_generator = BalancedBatchGenerator([img_train, ceil_train], y_train, sampler=SMOTE(),
+                                             batch_size=batch_size, random_state=1)
+
+    dgen = BalancedImageGenerator(image_generator, batch_generator)
+
     return dgen
 
 
