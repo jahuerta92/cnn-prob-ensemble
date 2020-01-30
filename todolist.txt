@@ -1,2 +1,4 @@
 - Probar a incluir los estadisticos + ceilometro a la capa Dense
+- Probar a hacer un ensemble de estadisticos (MLP) e imagenes (CNN)
 - Probar a quitar la informacion del ceilometro
+- 

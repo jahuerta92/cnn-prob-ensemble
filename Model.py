@@ -1,8 +1,6 @@
 from math import floor
 from Layer import RandomCropping2D
 
-import tensorflow as tf
-from tensorflow import keras
 from tensorflow.keras.layers import *
 from tensorflow.keras.models import Model
 

@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.utils import class_weight
+
 from imblearn.over_sampling import SMOTE
 from imblearn.keras import BalancedBatchGenerator
 
@@ -54,12 +55,14 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1,
 
     y_train, y_test, y_valid = cloud_encoded[in_train], cloud_encoded[in_test], cloud_encoded[in_valid]
 
-    print("\nSMOTE oversampling\n")
     if oversampler is not None:
+        print("\nSMOTE oversampling\n")
         in_train_reshaped = in_train.reshape(-1, 1)
         in_train_reshaped, y_train = oversampler.fit_resample(in_train_reshaped, y_train)
+        print(y_train)
         in_train = in_train_reshaped.reshape(-1)
         y_train = cloud_encoded[in_train]
+        values, counts = np.unique(cloud_type[in_train], return_counts=True)
 
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
     aux_train, aux_test, aux_valid = features.iloc[in_train, :], features.iloc[in_test, :], features.iloc[in_valid, :]
@@ -93,45 +96,17 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1,
 
     return data
 
+
 # Crea un ImageDataGenerator generico a partir de los datos de entrenamiento.
 def make_data_generator(train_data):
     img_train, ceil_train, y_train = train_data
-    dgen = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
+    dgen = ImageDataGenerator(featurewise_center=True, featurewise_std_normalization=True,
                              rotation_range=180, width_shift_range=.3,
                              height_shift_range=.3, brightness_range=[.5, 1.0],
                              zoom_range=[.5, 1.0], shear_range=45,
                              fill_mode='nearest', horizontal_flip=True,
                              vertical_flip=True)
     dgen.fit(img_train)
-    return dgen
-
-
-class BalancedImageGenerator:
-    def __init__(self, ImageDataGenerator, BalancedBatchGenerator):
-        self._imgen = ImageDataGenerator
-        self._bgen = BalancedBatchGenerator
-
-    def flow(self, *args, **kwargs):
-        while True:
-            (X, ceil), y = self._bgen.next()
-            X_t = self._imgen.random_transform(X)
-            yield [X_t, ceil], y
-
-
-def make_balanced_generator(train_data, batch_size):
-    img_train, ceil_train, y_train = train_data
-    image_generator = ImageDataGenerator(featurewise_center=True, samplewise_center=True,
-                                         rotation_range=180, width_shift_range=.3,
-                                         height_shift_range=.3, brightness_range=[.5, 1.0],
-                                         zoom_range=[.5, 1.0], shear_range=45,
-                                         fill_mode='nearest', horizontal_flip=True,
-                                         vertical_flip=True)
-
-    batch_generator = BalancedBatchGenerator([img_train, ceil_train], y_train, sampler=SMOTE(),
-                                             batch_size=batch_size, random_state=1)
-
-    dgen = BalancedImageGenerator(image_generator, batch_generator)
-
     return dgen
 
 
@@ -215,8 +190,7 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                             validation_data=data_generator.flow((img_valid, ceil_valid), y_valid, batch_size=batch_size),
                             validation_steps=len(img_valid) / batch_size,
                             callbacks=callback_list,
-                            class_weight = class_weights
-        )
+                            class_weight=class_weights)
 
     return model
 
