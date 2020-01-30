@@ -6,6 +6,7 @@ import seaborn as sns
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelBinarizer, scale
 from sklearn.metrics import confusion_matrix, classification_report
+from sklearn.utils import class_weight
 from imblearn.over_sampling import SMOTE
 from imblearn.keras import BalancedBatchGenerator
 
@@ -138,10 +139,17 @@ def make_balanced_generator(train_data, batch_size):
 # model_dir: directorio del modelo a guardar
 # Entrena un modelo construido a partir de un constructor de Model
 def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
-              max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1):
+              max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1, include_class_weights=True):
     print("Unpacking train and validation tests")
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
+
+    # Declarar pesos de clase
+    class_weights = None
+    if include_class_weights:
+        class_weights = class_weight.compute_class_weight('balanced',
+                                                          np.unique(y_train),
+                                                          y_train)
 
     label_num = y_train.shape[1]
     ceil_features = ceil_train.shape[1]
@@ -192,7 +200,8 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                             verbose=2,
                             validation_data=multi_output_generator(data_generator, (img_valid, ceil_valid), y_valid),
                             validation_steps=len(img_valid) / batch_size,
-                            callbacks=callback_list)
+                            callbacks=callback_list,
+                            class_weight=class_weights)
 
     else:
         model.fit_generator(data_generator.flow((img_train, ceil_train), y_train, batch_size=batch_size),
@@ -201,7 +210,9 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                             verbose=2,
                             validation_data=data_generator.flow((img_valid, ceil_valid), y_valid, batch_size=batch_size),
                             validation_steps=len(img_valid) / batch_size,
-                            callbacks=callback_list)
+                            callbacks=callback_list,
+                            class_weight = class_weights
+        )
 
     return model
 
