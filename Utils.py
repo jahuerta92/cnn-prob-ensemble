@@ -29,6 +29,7 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1,
               oversampler=SMOTE()):
     features = pd.read_csv('%s/%s' % (file_dir, feat_file), sep=';', decimal=',')
     cloud_type = np.array(features['cloud.type'])
+
     ceil_info = np.array(features[["ceil.height0", "ceil.height1",
                                    "ceil.height2", "ceil.depth0",
                                    "ceil.depth1", "ceil.depth2",
@@ -39,11 +40,14 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1,
     del features['camnum']
     del features['cloud.type']
 
+    cols = features.columns
+
     # De string a una matriz de clases para la red
     encoder = LabelBinarizer()
     cloud_encoded = encoder.fit_transform(cloud_type)
 
     # Escalado de las variables de entrada
+    features = pd.DataFrame(scale(features, copy=False), columns=cols)
     ceil_info = scale(ceil_info, copy=False)
 
     in_train, in_test = train_test_split(np.array(range(0, len(cloud_type))),
@@ -62,7 +66,6 @@ def load_data(file_dir, train_prop=.7, valid_prop=.1,
         print(y_train)
         in_train = in_train_reshaped.reshape(-1)
         y_train = cloud_encoded[in_train]
-        values, counts = np.unique(cloud_type[in_train], return_counts=True)
 
     ceil_train, ceil_test, ceil_valid = ceil_info[in_train], ceil_info[in_test], ceil_info[in_valid]
     aux_train, aux_test, aux_valid = features.iloc[in_train, :], features.iloc[in_test, :], features.iloc[in_valid, :]
@@ -118,10 +121,14 @@ def make_data_generator(train_data):
 # model_dir: directorio del modelo a guardar
 # Entrena un modelo construido a partir de un constructor de Model
 def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
-              max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1, include_class_weights=True):
+              max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1, include_class_weights=True,
+              features = None):
     print("Unpacking train and validation tests")
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
+
+    if features is not None:
+        ceil_train, ceil_valid, _ = features
 
     # Declarar pesos de clase
     class_weights = None
@@ -195,16 +202,19 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
     return model
 
 
+
 # file_dir: Directorio en el que se encuentran los archivos a cargar y guardar
 # model_name: Nombre del modelo usado
 # encoder: Objeto usado para transformar la clase a columnas
 # normalizer: DataGenerator para normalizar las entradas
 # test_data: Datos de evaluacion
 # 'encoder' es el LabelBinarizer que transforma la clave en columnas
-def save_results(file_dir, model_name, encoder, data_generator, test_data, n_outputs=1):
+def save_results(file_dir, model_name, encoder, data_generator, test_data, n_outputs=1, features=None):
     # Cargar y evaluar el mejor modelo
     model = load_model('%s/%s' % (file_dir, '%s_model.h5' % model_name))
     img_test, ceil_test, y_test = test_data
+    if features is not None:
+        _, _, ceil_test = features
 
     # Extraer las predicciones del modelo
     standard_img_test = data_generator.standardize(img_test)
