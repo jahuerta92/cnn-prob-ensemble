@@ -43,7 +43,10 @@ def make_prebuilt(prebuilt, freeze_prop=.25, wgh='imagenet', include_ceilometer=
             if 'batch_normalization' not in layer.name:
                 layer.trainable = False
 
-        return Model([base.input, ceil_input], predictions)
+        if include_ceilometer:
+            return Model([base.input, ceil_input], predictions)
+
+        return Model(base.input, predictions)
     return _prebuilt
 
 
@@ -97,6 +100,33 @@ def make_prebuilt_features(prebuilt, freeze_prop=.25):
                 layer.trainable = False
 
         return Model([base.input, feature_input], predictions)
+    return _prebuilt
+
+
+def make_prebuilt_features_2(prebuilt, freeze_prop=.25):
+    def _prebuilt(img_shape, feature_shape, labels):
+        base = prebuilt(include_top=False, weights='imagenet', input_shape=img_shape)
+        feature_input = Input(shape=(feature_shape,))
+
+        y = Dense(128, activation="relu")(feature_input)
+        y = Dropout(0.5)(y)
+
+        predictions_feat = Dense(labels, activation="softmax", name='out_0')(y)
+
+        x = GlobalAveragePooling2D()(base.output)
+        x = Concatenate()([x, y])
+
+        x = Dense(2048, activation='relu')(x)
+        x = Dropout(0.5)(x)
+
+        predictions = Dense(labels, activation="softmax", name='out')(x)
+
+        disabled = floor(len(base.layers) * freeze_prop)
+        for layer in base.layers[:disabled]:
+            if 'batch_normalization' not in layer.name:
+                layer.trainable = False
+
+        return Model([base.input, feature_input], [predictions, predictions_feat])
     return _prebuilt
 
 

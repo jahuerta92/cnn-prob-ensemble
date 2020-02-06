@@ -122,7 +122,7 @@ def make_data_generator(train_data):
 # Entrena un modelo construido a partir de un constructor de Model
 def fit_model(train_data, valid_data, data_generator, model_builder, model_name, model_dir='./results',
               max_epochs=1000, batch_size=64, lr=1e-4, n_outputs=1, include_class_weights=True,
-              features = None):
+              features = None, include_ceilometer=True):
     print("Unpacking train and validation tests")
     img_train, ceil_train, y_train = train_data
     img_valid, ceil_valid, y_valid = valid_data
@@ -171,6 +171,13 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                                      monitor=monitored_metric, save_best_only=True),
                      EarlyStopping(monitor=monitored_metric, min_delta=0.0001, patience=25)]
 
+    x_train = img_train
+    x_valid = img_valid
+
+    if include_ceilometer:
+        x_train = (img_train, ceil_train)
+        x_valid = (img_train, ceil_train)
+
     print("Fitting the network")
     if n_outputs > 1:
         # Generar el flow de salidas (No soporta multisalida por defecto DataGenGenerator)
@@ -180,21 +187,21 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
                 x_next, y_next = gen_x.next()
                 yield x_next, [y_next[:] for _ in range(n_outputs)]
 
-        model.fit_generator(multi_output_generator(data_generator, (img_train, ceil_train), y_train),
+        model.fit_generator(multi_output_generator(data_generator, x_train, y_train),
                             steps_per_epoch=len(img_train) / batch_size,
                             epochs=max_epochs,
                             verbose=2,
-                            validation_data=multi_output_generator(data_generator, (img_valid, ceil_valid), y_valid),
+                            validation_data=multi_output_generator(data_generator, x_valid, y_valid),
                             validation_steps=len(img_valid) / batch_size,
                             callbacks=callback_list,
                             class_weight=class_weights)
 
     else:
-        model.fit_generator(data_generator.flow((img_train, ceil_train), y_train, batch_size=batch_size),
+        model.fit_generator(data_generator.flow(x_train, y_train, batch_size=batch_size),
                             steps_per_epoch=len(img_train) / batch_size,
                             epochs=max_epochs,
                             verbose=2,
-                            validation_data=data_generator.flow((img_valid, ceil_valid), y_valid, batch_size=batch_size),
+                            validation_data=data_generator.flow(x_valid, y_valid, batch_size=batch_size),
                             validation_steps=len(img_valid) / batch_size,
                             callbacks=callback_list,
                             class_weight=class_weights)
@@ -209,7 +216,8 @@ def fit_model(train_data, valid_data, data_generator, model_builder, model_name,
 # normalizer: DataGenerator para normalizar las entradas
 # test_data: Datos de evaluacion
 # 'encoder' es el LabelBinarizer que transforma la clave en columnas
-def save_results(file_dir, model_name, encoder, data_generator, test_data, n_outputs=1, features=None):
+def save_results(file_dir, model_name, encoder, data_generator, test_data, n_outputs=1, features=None,
+                 include_ceilometer=True):
     # Cargar y evaluar el mejor modelo
     model = load_model('%s/%s' % (file_dir, '%s_model.h5' % model_name))
     img_test, ceil_test, y_test = test_data
@@ -218,7 +226,11 @@ def save_results(file_dir, model_name, encoder, data_generator, test_data, n_out
 
     # Extraer las predicciones del modelo
     standard_img_test = data_generator.standardize(img_test)
-    model_test_predictions = model.predict([standard_img_test, ceil_test])
+    x_test = standard_img_test
+    if include_ceilometer:
+        x_test = [standard_img_test, ceil_test]
+
+    model_test_predictions = model.predict(x_test)
 
     if len(model_test_predictions) == n_outputs and len(model_test_predictions) > 1:
         model_test_predictions = model_test_predictions[0]
