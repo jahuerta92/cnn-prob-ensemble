@@ -1,4 +1,4 @@
 - Probar a incluir los estadisticos + ceilometro a la capa Dense. No funciona!
 - Probar a hacer un ensemble de estadisticos (MLP) e imagenes (CNN). No funciona! 92-93% max
-- Probar a quitar la informacion del ceilometro
+- Probar a quitar la informacion del ceilometro. Empeora los resultados de la CNN en 
 - 
