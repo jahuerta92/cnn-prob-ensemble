@@ -9,3 +9,4 @@ plots/
 *.nc
 .ipynb_checkpoints
 .idea
+__pycache__
