@@ -363,6 +363,10 @@ def save_results(file_dir, model_file_name, data, data_generator, n_outputs=1, f
 
     with open('%s/%s' % (file_dir, model_file_name.replace("_model.h5", '_indices.pickle' )), 'wb') as f:
         pickle.dump(data["indices"], f)
+        
+        
+    with open('%s/%s' % (file_dir, model_file_name.replace("_model.h5", '_encoder.pickle' )), 'wb') as f:
+        pickle.dump(encoder, f)
 
     # Use this to read
     #with open('temp.pickle', 'rb') as f:
