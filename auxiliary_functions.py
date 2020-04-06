@@ -13,7 +13,7 @@ from sklearn.svm import SVC
 from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 import seaborn as sns
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, precision_score
 from sklearn import preprocessing
 from sklearn.model_selection import GridSearchCV
 from sklearn.ensemble import RandomForestClassifier
@@ -105,14 +105,16 @@ def generate_confusion_matrix_and_report(y_pred, y_test_dec, output_file_id, exp
     
     conf_matrix = confusion_matrix(y_true=y_test_dec, y_pred=y_pred)
 
-    fig = plt.figure(figsize=(5.27, 4), dpi=100)
+    fig = plt.figure(figsize=(8.27, 6), dpi=100)
     ax = plt.axes()
 
-    sns.heatmap(conf_matrix, annot=True, ax = ax, fmt='g'); #annot=True to annotate cells
+    sns.heatmap(conf_matrix, annot=True, ax = ax, fmt='g', cmap="Blues"); #annot=True to annotate cells
     plt.xticks(rotation=90); plt.yticks(rotation=0)
     ax.xaxis.set_ticklabels(list(set(y_pred)));     ax.yaxis.set_ticklabels(list(set(y_pred)))
    
     fig.savefig(os.path.join(output_dir, matrix_file_name), bbox_inches='tight', pad_inches=0.1)
+    
+    return cl_report_dict, conf_matrix
 
 ##############################################################
 # Function to compare classifiers on training set
@@ -134,8 +136,13 @@ def train_classifiers_on_set(X_train, Y_train, X_test, Y_test, output_file_id, e
 
     scoring = 'accuracy'
   
-    results_df = pd.DataFrame(columns=["Classifier", "Train_accuracy", "Test_accuracy"])
+    results_df = pd.DataFrame(columns=["Classifier", "Train_accuracy", "Test_accuracy",
+                                       "Train_macro_avg_precision", "Test_macro_avg_precision",
+                                       "Train_macro_avg_weighted_precision", "Test_macro_weighted_avg_precision",])
     
+    best_macro_avg_weighted_precision_test = 0.0
+    best_model_name = ""
+    best_model_decod_test = None
     for name, model in models:
       
         model.fit(X_train, Y_train)
@@ -148,16 +155,38 @@ def train_classifiers_on_set(X_train, Y_train, X_test, Y_test, output_file_id, e
 
         acc_train = accuracy_score(Y_train, decod_train)
         acc_test = accuracy_score(Y_test, decod_test)
+        
+        macro_avg_precision_train = precision_score(Y_train, decod_train, average='macro')
+        macro_avg_precision_test = precision_score(Y_test, decod_test, average='macro')
+        
+        macro_avg_weighted_precision_train = precision_score(Y_train, decod_train, average='weighted')
+        macro_avg_weighted_precision_test = precision_score(Y_test, decod_test, average='weighted')
+        
+        if macro_avg_weighted_precision_test > best_macro_avg_weighted_precision_test:
+            best_model_name = name
+            best_model_decod_test = decod_test
+            best_macro_avg_weighted_precision_test = macro_avg_weighted_precision_test
+        
 
-        msg = "%s: TRAIN: %f TEST: %f" % (name, acc_train, acc_test)
-        results_df = results_df.append({"Classifier":name, "Train_accuracy":acc_train, "Test_accuracy":acc_test}, ignore_index=True)
+        # msg = "%s: TRAIN: %f TEST: %f" % (name, acc_train, acc_test)
+        results_df = results_df.append({"Classifier":name, "Train_accuracy":acc_train, "Test_accuracy":acc_test,
+                                        "Train_macro_avg_precision": macro_avg_precision_train,
+                                        "Test_macro_avg_precision": macro_avg_precision_test,
+                                        "Train_macro_avg_weighted_precision": macro_avg_weighted_precision_train,
+                                        "Test_macro_weighted_avg_precision": macro_avg_weighted_precision_test}, ignore_index=True)
 
     display(results_df.round(4))
         
     report_classification_file_name=("{}_classifiers_report_{}.csv".format(output_file_id, experiment_name))
+    
+    table_classification_latex_file_name=("{}_classifiers_latex_{}.tex".format(output_file_id, experiment_name))
 
     results_df.round(4).to_csv(os.path.join(output_dir, report_classification_file_name))
+    results_df.round(4).to_latex(os.path.join(output_dir, table_classification_latex_file_name), index=False, bold_rows=True)
+    
+    
 
+    return results_df, best_model_name, best_model_decod_test
     
 ##############################################################
 # Function to train RF with different no. estimators
@@ -171,7 +200,7 @@ def grid_search_rf(X_train, Y_train, X_test, Y_test, encoder, parameters_rf, fil
     
     # THIS PERFORMS CROSS VALIDATION
     # REFIT TRUE, SO THE RF IS RETRAINED ON THE WHOLE ORIGINAL TRAINING DATASET WITH THE BEST PARAMETER CONFIGURAITON FOUND DURING THE CROSS VALIDATION
-    grid_rf = GridSearchCV(rf, parameters_rf, verbose=10, n_jobs=-1)
+    grid_rf = GridSearchCV(rf, parameters_rf, verbose=10, n_jobs=-1, scoring='precision_weighted')
     grid_rf.fit(X_train, Y_train)
     
 
@@ -186,9 +215,12 @@ def grid_search_rf(X_train, Y_train, X_test, Y_test, encoder, parameters_rf, fil
     # Plotting RF comparison no. estimators
     ##############################################################
     
-    fig = plt.figure(figsize=(5.27, 4), dpi=100)
+    fig = plt.figure(figsize=(7.27, 4), dpi=100)
     ax = sns.lineplot(x="param_n_estimators", y="mean_test_score", marker="o", data=pd.DataFrame(grid_rf.cv_results_))
-    ax.set(xlabel='No. estimators', ylabel='Mean test score')
+    ax.set(xlabel='No. estimators', ylabel='Mean weighted precision train set\n Cross validation')
+    ax.set(xticks=np.asarray(parameters_rf["n_estimators"]), xticklabels=np.asarray(parameters_rf["n_estimators"]))
+    ax.set_xticklabels(np.asarray(parameters_rf["n_estimators"]), rotation=45, horizontalalignment='right')#fig.savefig(os.path.join("plots/", ("{}_rf_train_results_no_estimators_{}.pdf".format(file_best_exec_id, experiment_name))), bbox_inches='tight', pad_inches=0.1)
+
     fig.savefig(os.path.join(output_dir, ("{}_rf_train_results_no_estimators_{}.pdf".format(file_best_exec_id, experiment_name))), bbox_inches='tight', pad_inches=0.1)
     
     preds_test_RF_hot = grid_rf.predict_proba(X_test)
@@ -201,8 +233,8 @@ def grid_search_rf(X_train, Y_train, X_test, Y_test, encoder, parameters_rf, fil
 
     print(classification_report(y_pred=preds_test_RF, y_true=Y_test, digits=4))
     
-    generate_confusion_matrix_and_report(y_pred=preds_test_RF, y_test_dec=Y_test, 
+    cl_report_dict, conf_matrix = generate_confusion_matrix_and_report(y_pred=preds_test_RF, y_test_dec=Y_test, 
                                          output_file_id=file_best_exec_id, experiment_name=experiment_name, 
                                          output_dir=output_dir)
 
-    return preds_test_RF_hot, preds_train_RF_hot
+    return preds_test_RF_hot, preds_train_RF_hot, grid_rf.cv_results_, grid_rf.best_params_, cl_report_dict, conf_matrix

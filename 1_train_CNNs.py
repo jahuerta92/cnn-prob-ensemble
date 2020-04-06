@@ -12,6 +12,8 @@ os.environ["CUDA_VISIBLE_DEVICES"]="0"
 from tensorflow.keras.applications.vgg19 import VGG19
 from tensorflow.keras.applications.inception_resnet_v2 import InceptionResNetV2
 from tensorflow.keras.applications.inception_v3 import InceptionV3
+from tensorflow.keras.applications.densenet import DenseNet201
+from tensorflow.keras.applications.xception import Xception
 from Model import *
 from Utils import *
 from imblearn.over_sampling import *
@@ -64,4 +66,17 @@ for n_execution in range(NUM_EXECUTIONS):
     save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
 
     
-    
+    model_name = 'densenet201_%s' % experiment_ceil_text
+    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
+                            make_prebuilt(DenseNet201,.25, include_ceilometer=False), model_name=model_name,
+                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+
+    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+
+    model_name = 'xceptionv1_%s' % experiment_ceil_text
+    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
+                            make_prebuilt(Xception,.25, include_ceilometer=False), model_name=model_name,
+                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+
+    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+
