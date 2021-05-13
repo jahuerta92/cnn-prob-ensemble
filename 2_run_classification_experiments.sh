@@ -1,0 +1,10 @@
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name caltech_birds2011
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name cassava
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name cats_vs_dogs
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name citrus_leaves
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name deep_weeds
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name malaria
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name oxford_flowers102
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name plant_leaves
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name plant_village
+screen -d -m python3 2_classification_experiments_all_cnns.py --dataset_name cars196

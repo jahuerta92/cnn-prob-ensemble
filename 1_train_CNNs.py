@@ -1,82 +1,116 @@
-import tensorflow as tf
-config = tf.ConfigProto(log_device_placement=False, allow_soft_placement=True)    
-config.gpu_options.allow_growth = True
-config.gpu_options.per_process_gpu_memory_fraction = 0.90
-sess = tf.Session(config = config)
+# Training of base CNN classifiers
 
-import pickle
 import os
-os.environ['TF_CPP_MIN_LOG_LEVEL']='3' 
-os.environ["CUDA_VISIBLE_DEVICES"]="0"
+import fire
+import sys
 
 from tensorflow.keras.applications.vgg19 import VGG19
 from tensorflow.keras.applications.inception_resnet_v2 import InceptionResNetV2
 from tensorflow.keras.applications.inception_v3 import InceptionV3
 from tensorflow.keras.applications.densenet import DenseNet201
 from tensorflow.keras.applications.xception import Xception
-from Model import *
-from Utils import *
-from imblearn.over_sampling import *
+
+from src.Model import make_prebuilt
+
+from src.datasets import load_malaria_dataset
+from src.datasets import load_cars196_dataset
+from src.datasets import load_caltech_birds2011_dataset
+from src.datasets import load_cats_vs_dogs_dataset
+from src.datasets import load_cassava_dataset
+from src.datasets import load_plant_leaves_dataset
+from src.datasets import load_deep_weeds_dataset
+from src.datasets import load_oxford_flowers102_dataset
+from src.datasets import load_citrus_leaves_dataset
+from src.datasets import load_plant_village_dataset
 
 
-NUM_EXECUTIONS = 10
-BATCH_SIZE = 32
+from src.Utils import train_model
 
-INCLUDE_CEILOMETER = False
+import warnings
 
-experiment_ceil_text = "ceil"
-if not INCLUDE_CEILOMETER:
-    experiment_ceil_text = "no_ceil"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+warnings.filterwarnings("ignore")
+
+BATCH_SIZE = 64
 
 
-NUM_EXECUTIONS = 5
+def run_model(model_name, dataset_name):
 
-file_dir = "data"
-model_dir = "results"
+    if dataset_name == "malaria":
+        data_loaded = load_malaria_dataset(batch_size=BATCH_SIZE)
 
-# TODO 
-data = load_data(file_dir, oversampler=RandomOverSampler())
+    elif dataset_name == "cars196":
+        data_loaded = load_cars196_dataset(batch_size=BATCH_SIZE)
 
-data_generator = make_data_generator(data['train'])
+    elif dataset_name == "caltech_birds2011":
+        data_loaded = load_caltech_birds2011_dataset(batch_size=BATCH_SIZE)
 
-for n_execution in range(NUM_EXECUTIONS):
-    
-    print("EXECUTION: %d" % n_execution)
-    print("INCLUDE CEIL FEATURES: %r" % INCLUDE_CEILOMETER)
+    elif dataset_name == "cats_vs_dogs":
+        data_loaded = load_cats_vs_dogs_dataset(batch_size=BATCH_SIZE)
 
-    # https://github.com/keras-team/keras/issues/2131
-    model_name = 'vgg19_%s' % experiment_ceil_text
-    model, model_file_name = fit_model(data['train'], data['valid'], data_generator, 
-                                       make_prebuilt(VGG19,.1, include_ceilometer=False), model_name=model_name, 
-                                       model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "cassava":
+        data_loaded = load_cassava_dataset(batch_size=BATCH_SIZE)
 
-    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
-    
-    model_name = 'inceptionresnetv2_%s' % experiment_ceil_text
-    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
-                            make_prebuilt(InceptionResNetV2,.25, include_ceilometer=False), model_name=model_name,
-                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
-    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "plant_leaves":
+        data_loaded = load_plant_leaves_dataset(batch_size=BATCH_SIZE)
 
-    model_name = 'inceptionv3_%s' % experiment_ceil_text
-    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
-                            make_prebuilt(InceptionV3,.1, include_ceilometer=False), model_name=model_name,
-                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "deep_weeds":
+        data_loaded = load_deep_weeds_dataset(batch_size=BATCH_SIZE)
 
-    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "oxford_flowers102":
+        data_loaded = load_oxford_flowers102_dataset(batch_size=BATCH_SIZE)
 
-    
-    model_name = 'densenet201_%s' % experiment_ceil_text
-    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
-                            make_prebuilt(DenseNet201,.25, include_ceilometer=False), model_name=model_name,
-                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "citrus_leaves":
+        data_loaded = load_citrus_leaves_dataset(batch_size=BATCH_SIZE)
 
-    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+    elif dataset_name == "plant_village":
+        data_loaded = load_plant_village_dataset(batch_size=BATCH_SIZE)
 
-    model_name = 'xceptionv1_%s' % experiment_ceil_text
-    model, model_file_name = fit_model(data['train'], data['valid'], data_generator,
-                            make_prebuilt(Xception,.25, include_ceilometer=False), model_name=model_name,
-                            model_dir=model_dir, batch_size=BATCH_SIZE, include_ceilometer=INCLUDE_CEILOMETER)
+    else:
+        print("dataset not found!")
+        sys.exit(0)
 
-    save_results(model_dir, model_file_name, data, data_generator, include_ceilometer=INCLUDE_CEILOMETER)
+    if model_name == "vgg19":
+        # VGG19
+        model_name = "vgg19"
+        freeze_prop = 0.0
+        model_builder = make_prebuilt(VGG19, freeze_prop, include_ceilometer=False)
+        train_model(model_name, data_loaded, BATCH_SIZE, model_builder, freeze_prop, dataset_name)
 
+    elif model_name == "inceptionresnetv2":
+
+        # inceptionresnetv2
+        model_name = "inceptionresnetv2"
+        freeze_prop = .25
+        model_builder = make_prebuilt(InceptionResNetV2, freeze_prop, include_ceilometer=False)
+        train_model(model_name, data_loaded, BATCH_SIZE, model_builder, freeze_prop, dataset_name)
+
+    elif model_name == "inceptionv3":
+
+        # inceptionv3
+        model_name = "inceptionv3"
+        freeze_prop = .1
+        model_builder = make_prebuilt(InceptionV3, freeze_prop, include_ceilometer=False)
+        train_model(model_name, data_loaded, BATCH_SIZE, model_builder, freeze_prop, dataset_name)
+
+    elif model_name == "densenet201":
+
+        # densenet201
+        model_name = "densenet201"
+        freeze_prop = .25
+        model_builder = make_prebuilt(DenseNet201, freeze_prop, include_ceilometer=False)
+        train_model(model_name, data_loaded, BATCH_SIZE, model_builder, freeze_prop, dataset_name)
+
+    elif model_name == "xceptionv1":
+
+        # xceptionv1
+        model_name = "xceptionv1"
+        freeze_prop = .25
+        model_builder = make_prebuilt(Xception, freeze_prop, include_ceilometer=False)
+        train_model(model_name, data_loaded, BATCH_SIZE, model_builder, freeze_prop, dataset_name)
+
+
+if __name__ == '__main__':
+    fire.Fire(run_model)
